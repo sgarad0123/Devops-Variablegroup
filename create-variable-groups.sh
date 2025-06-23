@@ -11,11 +11,11 @@ if [[ -z "$PAT" ]]; then
   exit 1
 fi
 
-# ✅ Properly encode PAT for Authorization header
+# Properly encode PAT for Authorization header
 ENCODED_PAT=$(printf ":%s" "$PAT" | base64 | tr -d '\n')
 AUTH_HEADER="Authorization: Basic $ENCODED_PAT"
 
-# ✅ Install jq if missing
+# Install jq if missing
 if ! command -v jq &> /dev/null; then
   echo "📦 Installing jq..."
   curl -L -o jq https://github.com/stedolan/jq/releases/latest/download/jq-linux64
@@ -23,13 +23,7 @@ if ! command -v jq &> /dev/null; then
   export PATH=$PATH:.
 fi
 
-# ✅ Optional: install curl if missing (won’t work on hosted agents due to sudo)
-if ! command -v curl &> /dev/null; then
-  echo "📦 Installing curl..."
-  sudo apt-get update && sudo apt-get install -y curl
-fi
-
-# ✅ Validate input file
+# Validate input file
 if [[ ! -f "$INPUT_FILE" ]]; then
   echo "❌ ERROR: Cannot find $INPUT_FILE in $(pwd)"
   exit 1
@@ -38,7 +32,7 @@ else
   cat "$INPUT_FILE"
 fi
 
-# ✅ Loop through JSON entries
+# Loop through JSON
 jq -c '.[]' "$INPUT_FILE" | while read -r item; do
   ORG=$(echo "$item" | jq -r '.org')
   PROJECT=$(echo "$item" | jq -r '.project')
@@ -54,8 +48,17 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
   VG_NAME="${ENV}-${TRACK}-${TRACKNAME}-vg"
   echo "🔧 Creating Variable Group: $VG_NAME under $ORG/$PROJECT"
 
-  echo "🔍 Preparing variable group JSON structure..."
+  echo "🌐 Fetching project ID..."
+  PROJECT_API_URL="https://dev.azure.com/$ORG/_apis/projects/$PROJECT?api-version=7.1-preview.1"
+  PROJECT_ID=$(curl --http1.1 -s -H "$AUTH_HEADER" "$PROJECT_API_URL" | jq -r '.id')
 
+  if [[ "$PROJECT_ID" == "null" || -z "$PROJECT_ID" ]]; then
+    echo "❌ ERROR: Failed to fetch project ID for $PROJECT"
+    exit 1
+  fi
+  echo "✅ Found project ID: $PROJECT_ID"
+
+  # Prepare variable JSON
   RAW_VARS=$(echo "$item" | jq -e '.variables') || {
     echo "❌ ERROR: Missing or invalid 'variables' field in JSON."
     echo "Offending entry:"
@@ -63,44 +66,37 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
     exit 1
   }
 
-  VARS_JSON=$(echo "$RAW_VARS" | jq 'to_entries | map({key: .key, value: { value: .value, isSecret: false }}) | from_entries') || {
-    echo "❌ ERROR: Failed to convert variables into required format"
-    echo "$RAW_VARS"
-    exit 1
-  }
+  VARS_JSON=$(echo "$RAW_VARS" | jq 'to_entries | map({key: .key, value: { value: .value, isSecret: false }}) | from_entries')
 
   BODY=$(jq -n \
     --arg name "$VG_NAME" \
     --argjson variables "$VARS_JSON" \
+    --arg projectId "$PROJECT_ID" \
+    --arg projectName "$PROJECT" \
     '{
       type: "Vsts",
       name: $name,
-      variables: $variables
-    }') || {
-      echo "❌ ERROR: Failed to construct final request body"
-      exit 1
-  }
-
-  echo "✅ Constructed request body successfully."
+      variables: $variables,
+      variableGroupProjectReferences: [
+        {
+          projectReference: {
+            id: $projectId,
+            name: $projectName
+          },
+          name: $name
+        }
+      ]
+    }')
 
   echo "$BODY" > payload.json
   echo "📤 JSON request payload saved to payload.json:"
-  jq . payload.json || {
-    echo "❌ Invalid JSON in payload.json"
-    cat payload.json
-    exit 1
-  }
+  jq . payload.json
 
   URL="https://dev.azure.com/$ORG/$PROJECT/_apis/distributedtask/variablegroups?api-version=7.1-preview.2"
   echo "🌐 Sending POST to: $URL"
 
-  # 🔐 Safe curl call with --http1.1 and debug info
   set +e
-
-  RESPONSE_FILE=$(mktemp 2>/dev/null)
-  if [[ -z "$RESPONSE_FILE" ]]; then
-    RESPONSE_FILE="response.json"
-  fi
+  RESPONSE_FILE=$(mktemp 2>/dev/null || echo "response.json")
 
   HTTP_CODE=$(curl --http1.1 -s -w "%{http_code}" -o "$RESPONSE_FILE" -X POST \
     -H "$AUTH_HEADER" \
@@ -109,27 +105,17 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
     "$URL")
 
   CURL_EXIT_CODE=$?
-
   set -e
 
   echo ""
   echo "🐞 Debug Info:"
   echo "curl exit code: $CURL_EXIT_CODE"
   echo "HTTP status: $HTTP_CODE"
-  echo ""
-  echo "📄 Full payload.json content:"
-  cat payload.json
-  echo ""
   echo "📨 API Response:"
   cat "$RESPONSE_FILE"
-  echo ""
 
   if [[ "$HTTP_CODE" -ge 400 || "$HTTP_CODE" -eq 000 ]]; then
-    echo ""
     echo "❌ ERROR: Failed to create variable group: $VG_NAME"
-    echo "💡 HINT: Check if the PAT has permission: Variable Groups (Read & Manage)"
-    echo "💡 HINT: Verify organization/project: $ORG / $PROJECT"
-    echo "💡 HINT: Ensure variable group name is unique and doesn't already exist"
     exit 1
   else
     echo "✅ Successfully created variable group: $VG_NAME"
