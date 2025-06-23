@@ -13,6 +13,19 @@ fi
 
 AUTH_HEADER="Authorization: Basic $(echo -n ":$PAT" | base64)"
 
+# Install jq and curl if missing
+if ! command -v jq &> /dev/null; then
+  echo "📦 Installing jq..."
+  curl -L -o jq https://github.com/stedolan/jq/releases/latest/download/jq-linux64
+  chmod +x jq
+  export PATH=$PATH:.
+fi
+
+if ! command -v curl &> /dev/null; then
+  echo "📦 Installing curl..."
+  sudo apt-get update && sudo apt-get install -y curl
+fi
+
 # Validate input file
 if [[ ! -f "$INPUT_FILE" ]]; then
   echo "❌ ERROR: Cannot find $INPUT_FILE in $(pwd)"
@@ -38,7 +51,6 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
   VG_NAME="${ENV}-${TRACK}-${TRACKNAME}-vg"
   echo "🔧 Creating Variable Group: $VG_NAME under $ORG/$PROJECT"
 
-  # Defensive JSON conversion
   echo "🔍 Preparing variable group JSON structure..."
 
   RAW_VARS=$(echo "$item" | jq -e '.variables') || {
@@ -68,7 +80,6 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
 
   echo "✅ Constructed request body successfully."
 
-  # Save to file for inspection
   echo "$BODY" > payload.json
   echo "📤 JSON request payload saved to payload.json:"
   jq . payload.json || {
@@ -80,7 +91,7 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
   URL="https://dev.azure.com/$ORG/$PROJECT/_apis/distributedtask/variablegroups?api-version=7.1-preview.2"
   echo "🌐 Sending POST to: $URL"
 
-  # Safe curl with debug output
+  # Safe curl call with debug output
   set +e
 
   RESPONSE_FILE=$(mktemp 2>/dev/null)
@@ -88,7 +99,7 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
     RESPONSE_FILE="response.json"
   fi
 
-  HTTP_CODE=$(curl -s -w "%{http_code}" -o "$RESPONSE_FILE" -X POST \
+  HTTP_CODE=$(curl --http1.1 -s -w "%{http_code}" -o "$RESPONSE_FILE" -X POST \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -d @payload.json \
