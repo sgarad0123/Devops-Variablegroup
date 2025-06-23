@@ -1,0 +1,12 @@
+[
+  {
+    "org": "my-org",
+    "project": "my-project",
+    "env": "dev",
+    "track": "343",
+    "variables": {
+      "secretKey": "dummy123",
+      "dbConn": "connstring"
+    }
+  }
+]
