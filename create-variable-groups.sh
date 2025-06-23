@@ -38,7 +38,6 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
   VG_NAME="${ENV}-${TRACK}-${TRACKNAME}-vg"
   echo "🔧 Creating Variable Group: $VG_NAME under $ORG/$PROJECT"
 
-  # Construct variable group JSON
   VARS_JSON=$(echo "$item" | jq '.variables' | jq 'to_entries | map({key: .key, value: { value: .value, isSecret: false }}) | from_entries')
 
   BODY=$(jq -n \
@@ -61,20 +60,32 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
     exit 1
   }
 
-  # API endpoint
   URL="https://dev.azure.com/$ORG/$PROJECT/_apis/distributedtask/variablegroups?api-version=7.1-preview.2"
   echo "🌐 Sending POST to: $URL"
 
-  # Use temp file for safe response handling
-  RESPONSE_FILE=$(mktemp)
+  # Disable immediate exit to capture all debug output
+  set +e
+
+  RESPONSE_FILE=$(mktemp 2>/dev/null)
+  if [[ -z "$RESPONSE_FILE" ]]; then
+    RESPONSE_FILE="response.json"
+  fi
+
   HTTP_CODE=$(curl -s -w "%{http_code}" -o "$RESPONSE_FILE" -X POST \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -d @payload.json \
     "$URL")
 
+  CURL_EXIT_CODE=$?
+
+  # Restore fail-on-error
+  set -e
+
   echo ""
-  echo "🔁 HTTP Status Code: $HTTP_CODE"
+  echo "🐞 Debug Info:"
+  echo "curl exit code: $CURL_EXIT_CODE"
+  echo "HTTP status: $HTTP_CODE"
   echo ""
   echo "📄 Full payload.json content:"
   cat payload.json
