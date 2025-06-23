@@ -11,9 +11,11 @@ if [[ -z "$PAT" ]]; then
   exit 1
 fi
 
-AUTH_HEADER="Authorization: Basic $(echo -n ":$PAT" | base64)"
+# ✅ Properly encode PAT for Authorization header
+ENCODED_PAT=$(printf ":%s" "$PAT" | base64 | tr -d '\n')
+AUTH_HEADER="Authorization: Basic $ENCODED_PAT"
 
-# Install jq and curl if missing
+# ✅ Install jq if missing
 if ! command -v jq &> /dev/null; then
   echo "📦 Installing jq..."
   curl -L -o jq https://github.com/stedolan/jq/releases/latest/download/jq-linux64
@@ -21,12 +23,13 @@ if ! command -v jq &> /dev/null; then
   export PATH=$PATH:.
 fi
 
+# ✅ Optional: install curl if missing (won’t work on hosted agents due to sudo)
 if ! command -v curl &> /dev/null; then
   echo "📦 Installing curl..."
   sudo apt-get update && sudo apt-get install -y curl
 fi
 
-# Validate input file
+# ✅ Validate input file
 if [[ ! -f "$INPUT_FILE" ]]; then
   echo "❌ ERROR: Cannot find $INPUT_FILE in $(pwd)"
   exit 1
@@ -35,7 +38,7 @@ else
   cat "$INPUT_FILE"
 fi
 
-# Loop through JSON array
+# ✅ Loop through JSON entries
 jq -c '.[]' "$INPUT_FILE" | while read -r item; do
   ORG=$(echo "$item" | jq -r '.org')
   PROJECT=$(echo "$item" | jq -r '.project')
@@ -91,7 +94,7 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
   URL="https://dev.azure.com/$ORG/$PROJECT/_apis/distributedtask/variablegroups?api-version=7.1-preview.2"
   echo "🌐 Sending POST to: $URL"
 
-  # Safe curl call with debug output
+  # 🔐 Safe curl call with --http1.1 and debug info
   set +e
 
   RESPONSE_FILE=$(mktemp 2>/dev/null)
@@ -121,7 +124,7 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
   cat "$RESPONSE_FILE"
   echo ""
 
-  if [[ "$HTTP_CODE" -ge 400 ]]; then
+  if [[ "$HTTP_CODE" -ge 400 || "$HTTP_CODE" -eq 000 ]]; then
     echo ""
     echo "❌ ERROR: Failed to create variable group: $VG_NAME"
     echo "💡 HINT: Check if the PAT has permission: Variable Groups (Read & Manage)"
