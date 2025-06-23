@@ -38,7 +38,21 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
   VG_NAME="${ENV}-${TRACK}-${TRACKNAME}-vg"
   echo "🔧 Creating Variable Group: $VG_NAME under $ORG/$PROJECT"
 
-  VARS_JSON=$(echo "$item" | jq '.variables' | jq 'to_entries | map({key: .key, value: { value: .value, isSecret: false }}) | from_entries')
+  # Defensive JSON conversion
+  echo "🔍 Preparing variable group JSON structure..."
+
+  RAW_VARS=$(echo "$item" | jq -e '.variables') || {
+    echo "❌ ERROR: Missing or invalid 'variables' field in JSON."
+    echo "Offending entry:"
+    echo "$item"
+    exit 1
+  }
+
+  VARS_JSON=$(echo "$RAW_VARS" | jq 'to_entries | map({key: .key, value: { value: .value, isSecret: false }}) | from_entries') || {
+    echo "❌ ERROR: Failed to convert variables into required format"
+    echo "$RAW_VARS"
+    exit 1
+  }
 
   BODY=$(jq -n \
     --arg name "$VG_NAME" \
@@ -47,12 +61,15 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
       type: "Vsts",
       name: $name,
       variables: $variables
-    }'
-  )
+    }') || {
+      echo "❌ ERROR: Failed to construct final request body"
+      exit 1
+  }
 
-  # Save to file for debugging
+  echo "✅ Constructed request body successfully."
+
+  # Save to file for inspection
   echo "$BODY" > payload.json
-
   echo "📤 JSON request payload saved to payload.json:"
   jq . payload.json || {
     echo "❌ Invalid JSON in payload.json"
@@ -63,7 +80,7 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
   URL="https://dev.azure.com/$ORG/$PROJECT/_apis/distributedtask/variablegroups?api-version=7.1-preview.2"
   echo "🌐 Sending POST to: $URL"
 
-  # Disable immediate exit to capture all debug output
+  # Safe curl with debug output
   set +e
 
   RESPONSE_FILE=$(mktemp 2>/dev/null)
@@ -79,7 +96,6 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
 
   CURL_EXIT_CODE=$?
 
-  # Restore fail-on-error
   set -e
 
   echo ""
