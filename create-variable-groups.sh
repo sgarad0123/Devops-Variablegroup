@@ -61,11 +61,13 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
     exit 1
   }
 
-  # API call
+  # API endpoint
   URL="https://dev.azure.com/$ORG/$PROJECT/_apis/distributedtask/variablegroups?api-version=7.1-preview.2"
   echo "🌐 Sending POST to: $URL"
 
-  HTTP_CODE=$(curl -s -w "%{http_code}" -o response.json -X POST \
+  # Use temp file for safe response handling
+  RESPONSE_FILE=$(mktemp)
+  HTTP_CODE=$(curl -s -w "%{http_code}" -o "$RESPONSE_FILE" -X POST \
     -H "$AUTH_HEADER" \
     -H "Content-Type: application/json" \
     -d @payload.json \
@@ -78,7 +80,7 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
   cat payload.json
   echo ""
   echo "📨 API Response:"
-  cat response.json
+  cat "$RESPONSE_FILE"
   echo ""
 
   if [[ "$HTTP_CODE" -ge 400 ]]; then
@@ -86,7 +88,7 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
     echo "❌ ERROR: Failed to create variable group: $VG_NAME"
     echo "💡 HINT: Check if the PAT has permission: Variable Groups (Read & Manage)"
     echo "💡 HINT: Verify organization/project: $ORG / $PROJECT"
-    echo "💡 HINT: Ensure variable group name is unique"
+    echo "💡 HINT: Ensure variable group name is unique and doesn't already exist"
     exit 1
   else
     echo "✅ Successfully created variable group: $VG_NAME"
