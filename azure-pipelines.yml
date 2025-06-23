@@ -11,8 +11,13 @@ variables:
 
 steps:
 - script: |
-    sudo apt-get update
-    sudo apt-get install -y jq
+     if ! command -v jq &> /dev/null; then
+      echo "jq not found, installing locally..."
+      curl -L -o jq https://github.com/stedolan/jq/releases/latest/download/jq-linux64
+      chmod +x jq
+      export PATH=$PATH:.
+    fi
+
     chmod +x ./create-variable-groups.sh
     ./create-variable-groups.sh "$(AZURE_DEVOPS_PAT)"
   displayName: 'Create Variable Groups from JSON'
