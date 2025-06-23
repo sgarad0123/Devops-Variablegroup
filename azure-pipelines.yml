@@ -4,8 +4,10 @@ pool:
   name: AKS
   vmImage: 'ubuntu-latest'
 
+#variables:
+  #AZURE_DEVOPS_PAT: $(AZURE_DEVOPS_PAT) # Secure variable added manually
 variables:
-  AZURE_DEVOPS_PAT: $(AZURE_DEVOPS_PAT) # Secure variable added manually
+- group: devops-secrets-vg
 
 steps:
 - script: |
