@@ -13,7 +13,7 @@ fi
 
 AUTH_HEADER="Authorization: Basic $(echo -n ":$PAT" | base64)"
 
-# Validate JSON file
+# Validate input file
 if [[ ! -f "$INPUT_FILE" ]]; then
   echo "❌ ERROR: Cannot find $INPUT_FILE in $(pwd)"
   exit 1
@@ -22,7 +22,7 @@ else
   cat "$INPUT_FILE"
 fi
 
-# Loop through each variable group definition
+# Loop through JSON array
 jq -c '.[]' "$INPUT_FILE" | while read -r item; do
   ORG=$(echo "$item" | jq -r '.org')
   PROJECT=$(echo "$item" | jq -r '.project')
@@ -38,6 +38,7 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
   VG_NAME="${ENV}-${TRACK}-${TRACKNAME}-vg"
   echo "🔧 Creating Variable Group: $VG_NAME under $ORG/$PROJECT"
 
+  # Construct variable group JSON
   VARS_JSON=$(echo "$item" | jq '.variables' | jq 'to_entries | map({key: .key, value: { value: .value, isSecret: false }}) | from_entries')
 
   BODY=$(jq -n \
@@ -50,7 +51,7 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
     }'
   )
 
-  # Save payload to file for inspection
+  # Save to file for debugging
   echo "$BODY" > payload.json
 
   echo "📤 JSON request payload saved to payload.json:"
@@ -60,7 +61,7 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
     exit 1
   }
 
-  # Call Azure DevOps REST API
+  # API call
   URL="https://dev.azure.com/$ORG/$PROJECT/_apis/distributedtask/variablegroups?api-version=7.1-preview.2"
   echo "🌐 Sending POST to: $URL"
 
@@ -70,15 +71,25 @@ jq -c '.[]' "$INPUT_FILE" | while read -r item; do
     -d @payload.json \
     "$URL")
 
+  echo ""
   echo "🔁 HTTP Status Code: $HTTP_CODE"
+  echo ""
+  echo "📄 Full payload.json content:"
+  cat payload.json
+  echo ""
   echo "📨 API Response:"
   cat response.json
   echo ""
 
   if [[ "$HTTP_CODE" -ge 400 ]]; then
-    echo "❌ Failed to create variable group: $VG_NAME"
+    echo ""
+    echo "❌ ERROR: Failed to create variable group: $VG_NAME"
+    echo "💡 HINT: Check if the PAT has permission: Variable Groups (Read & Manage)"
+    echo "💡 HINT: Verify organization/project: $ORG / $PROJECT"
+    echo "💡 HINT: Ensure variable group name is unique"
     exit 1
   else
     echo "✅ Successfully created variable group: $VG_NAME"
   fi
+
 done
