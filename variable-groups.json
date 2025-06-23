@@ -1,7 +1,7 @@
 [
   {
-    "org": "my-org",
-    "project": "my-project",
+    "org": "ShubhamAI",
+    "project": "eShopModernizing",
     "env": "dev",
     "track": "343",
     "variables": {
