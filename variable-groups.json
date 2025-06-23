@@ -4,9 +4,10 @@
     "project": "eShopModernizing",
     "env": "dev",
     "track": "343",
+    "trackName": "eshopapi",
     "variables": {
-      "secretKey": "dummy123",
-      "dbConn": "connstring"
+      "apiKey": "ABC123",
+      "env": "dev"
     }
   }
 ]
